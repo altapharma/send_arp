@@ -77,11 +77,11 @@ int main(int argc, char* argv[])
 
     for(i=0;i<6;i++)
     {
-    	if(i != 5)
-    		printf("%02x:",mac_address[i]);
-    	else
-    		printf("%02x\n",mac_address[i]);
+    		printf("%02x",mac_address[i]);
+    		if(i != 5) printf(":");
+    	
     }
+    printf("\n");
 
 	ifr.ifr_addr.sa_family = AF_INET;
 	strncpy(ifr.ifr_name , argv[1] , IFNAMSIZ - 1);
@@ -98,7 +98,14 @@ int main(int argc, char* argv[])
     struct in_addr senderIP, targetIP;
 	u_char* packet;
 	struct sniff_ethernet* eth;
+	struct sniff_ethernet* recv_eth;
 	struct arphdr* arp;
+	struct arphdr* recv_arp;
+	struct pcap_pkthdr* header;
+	u_char recv_mac[6];
+
+	#define SIZE_ETHERNET 14
+
 
     inet_pton(AF_INET,argv[2],&senderIP.s_addr);
 	inet_pton(AF_INET,argv[3],&targetIP.s_addr);
@@ -140,6 +147,7 @@ int main(int argc, char* argv[])
     fprintf(stderr, "couldn't open device %s: %s\n", dev, errbuf);
     return -1;
   }
+/*
 	printf("\n[+] packet to send\n");
 	for(int i=0;i<packet_len;i++){
 		if(i != 0 && i%16 == 0)
@@ -147,10 +155,45 @@ int main(int argc, char* argv[])
 		printf("%02x ",*(packet+i));
 	}
 	printf("end\n");
+*/
+  	
 	while(1){
 		if(pcap_sendpacket(handle,packet,packet_len) == 0)
-			//break;
-			printf("sbsbsbsbsb\n");
+			break;
+			//printf("sbsbsbsbsb\n");
+	}
+	
+	while (1) {
+    int res = pcap_next_ex(handle, &header, &packet);
+    if (res == 0) continue;
+    if (res == -1 || res == -2) break;
+    /*
+     -1 if an error occurred 
+     -2 if EOF was reached reading from an offline capture
+    */
+    recv_eth = (struct sniff_ethernet*)packet;
+
+    printf("Start!\n");
+    printf("*************************************************************************\n");
+
+    if(recv_eth->ether_type == 0x0806) //arp
+    {
+    	recv_arp = (struct arphdr*)(packet + SIZE_ETHERNET);
+
+    	if(recv_arp->oper == htons(0x0002))
+    	{
+    		char* ptr;
+  	
+			u_char* ip_buf_tmp = (u_char*)malloc(4);
+    		sprintf(ip_buf_tmp, "%x%x%x%x",recv_arp->tpa[3],recv_arp->tpa[2],recv_arp->tpa[1],recv_arp->tpa[0]);
+    		if(senderIP.s_addr == strtol(ip_buf_tmp,&ptr,16))
+    		{
+    			memcpy(recv_mac,recv_eth->ether_shost,6);
+    			printf("recv mac :%s\n",recv_mac);
+    		}
+    	}
+    }
+	
 	}
 } 
 
